@@ -3614,6 +3614,25 @@ if(document.readyState!=='loading') boot();
 
 })();
 </script>
+  <!-- AI 助手悬浮按钮和聊天框 -->
+<div id="ai-chat-box" style="display:none; position:fixed; bottom:80px; right:20px; width:300px; height:400px; background:white; border:1px solid #ccc; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:9999; padding:10px; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding-bottom:5px; margin-bottom:10px;">
+        <strong style="color:#333;">AI 助手</strong>
+        <button onclick="document.getElementById('ai-chat-box').style.display='none'" style="border:none; background:none; color:red; cursor:pointer;">关闭</button>
+    </div>
+    
+    <input type="password" id="user-api-key" placeholder="填你的智谱 API Key (仅保存在本地)" style="width:100%; padding:5px; margin-bottom:5px; border:1px solid #ddd; border-radius:5px; font-size:12px;">
+    
+    <div id="chat-history" style="flex:1; overflow-y:auto; font-size:14px; margin-bottom:10px; background:#f9f9f9; padding:5px;"></div>
+    
+    <div style="display:flex;">
+        <input type="text" id="ai-input" placeholder="问我关于记账的问题..." style="flex:1; padding:5px; border:1px solid #ddd; border-radius:5px;">
+        <button onclick="sendMessageToAI()" style="background:#ff7a45; color:white; border:none; padding:5px 10px; margin-left:5px; border-radius:5px;">发送</button>
+    </div>
+</div>
+
+<!-- 悬浮的打开按钮 -->
+<button onclick="document.getElementById('ai-chat-box').style.display='flex'" style="position:fixed; bottom:20px; right:20px; width:50px; height:50px; border-radius:50%; background:#ff7a45; color:white; border:none; box-shadow:0 4px 10px rgba(0,0,0,0.2); z-index:9999; font-size:24px;">💬</button>
 <script>
 document.getElementById('ai-input')?.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') sendMessageToAI();
