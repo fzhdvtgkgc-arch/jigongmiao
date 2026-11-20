@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="记工喵">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; manifest-src 'self' blob:; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data: https://api.deepseek.com https://api.siliconflow.cn https://api.moonshot.cn; manifest-src 'self' blob:; object-src 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -1074,7 +1074,7 @@ function initial(name){
 
 /* ================= 状态 ================= */
 const KEY='gongshi_v1';
-const APP_VERSION='1.3.2';
+const APP_VERSION='1.3.3';
 function emptyState(){
   return { version:1, records:{}, presets:[], settings:{currency:'¥', theme:'light', autoBackup:true, jobColors:{}} };
 }
@@ -3614,106 +3614,382 @@ if(document.readyState!=='loading') boot();
 
 })();
 </script>
-  <!-- AI 助手悬浮按钮和聊天框 -->
-<div id="ai-chat-box" style="display:none; position:fixed; bottom:80px; right:20px; width:300px; height:400px; background:white; border:1px solid #ccc; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:9999; padding:10px; flex-direction:column;">
-    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding-bottom:5px; margin-bottom:10px;">
-        <strong style="color:#333;">AI 助手</strong>
-        <button onclick="document.getElementById('ai-chat-box').style.display='none'" style="border:none; background:none; color:red; cursor:pointer;">关闭</button>
+<!-- ============ AI 记账助手 ============ -->
+<style>
+#aiFab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));width:52px;height:52px;
+  border-radius:50%;border:none;z-index:9000;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#ffa063,#ff6b2c);color:#fff;font-size:22px;line-height:1;cursor:pointer;
+  box-shadow:0 10px 22px rgba(255,107,44,.36),inset 0 1px 0 rgba(255,255,255,.45);
+  transition:transform .16s ease}
+#aiFab:active{transform:scale(.93)}
+#aiMask{position:fixed;inset:0;background:rgba(10,12,16,.42);z-index:9400;opacity:0;pointer-events:none;transition:opacity .22s}
+#aiMask.on{opacity:1;pointer-events:auto}
+#aiPanel{position:fixed;left:0;right:0;bottom:0;z-index:9500;display:none;flex-direction:column;
+  height:min(76vh,620px);background:var(--card);color:var(--text);
+  border-radius:22px 22px 0 0;border-top:1px solid var(--line);
+  box-shadow:0 -14px 44px rgba(0,0,0,.22);transform:translateY(102%);
+  transition:transform .3s cubic-bezier(.3,1,.4,1)}
+#aiPanel.on{display:flex;transform:translateY(0)}
+.ai-grip{width:38px;height:4px;border-radius:99px;background:var(--line);margin:8px auto 2px;flex:0 0 auto}
+.ai-head{display:flex;align-items:center;gap:10px;padding:6px 16px 10px;flex:0 0 auto;border-bottom:1px solid var(--line)}
+.ai-head .tt{font-size:15px;font-weight:800;letter-spacing:-.2px}
+.ai-head .ss{font-size:11px;color:var(--text-2);margin-top:2px;font-weight:600}
+.ai-x{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--card);
+  color:var(--text-2);font-size:15px;margin-left:auto;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ai-cfg{flex:0 0 auto;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
+.ai-cfg .row{display:flex;gap:8px}
+.ai-cfg select,.ai-cfg input{flex:1;min-width:0;height:38px;padding:0 11px;border-radius:11px;
+  border:1px solid var(--line);background:var(--card);color:var(--text);font-size:12.5px;font-weight:600;
+  font-family:inherit;-webkit-appearance:none;appearance:none}
+.ai-cfg select{flex:0 0 42%;padding-right:26px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%238a8f98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center}
+.ai-cfg select:focus,.ai-cfg input:focus,.ai-bar input:focus{outline:none;border-color:#ffb08a;box-shadow:0 0 0 3px rgba(255,140,80,.14)}
+.ai-cfg .tip{font-size:10.5px;color:var(--text-3);margin-top:7px;line-height:1.5;font-weight:600}
+.ai-cfg .tip a{color:#ff6b2c;text-decoration:none;font-weight:800}
+.ai-msgs{flex:1;overflow-y:auto;padding:14px 16px 6px;display:flex;flex-direction:column;gap:10px;
+  -webkit-overflow-scrolling:touch}
+.ai-msg{max-width:86%;font-size:13.5px;line-height:1.62;padding:10px 13px;border-radius:15px;
+  white-space:pre-wrap;word-break:break-word;font-weight:600}
+.ai-msg.me{align-self:flex-end;background:linear-gradient(145deg,#ff9a5c,#ff7029);color:#fff;
+  border-bottom-right-radius:5px;box-shadow:0 4px 12px rgba(255,107,44,.26)}
+.ai-msg.bot{align-self:flex-start;background:var(--bg);border:1px solid var(--line);
+  color:var(--text);border-bottom-left-radius:5px}
+.ai-msg.err{align-self:flex-start;background:#fff1ef;border:1px solid #ffd5cd;color:#c2331b;
+  font-size:12px;font-weight:700;line-height:1.55}
+[data-theme="dark"] .ai-msg.err{background:#2a1714;border-color:#5a2820;color:#ff9a86}
+.ai-dots{align-self:flex-start;display:flex;gap:4px;padding:12px 14px;background:var(--bg);
+  border:1px solid var(--line);border-radius:15px}
+.ai-dots i{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:aiBlink 1.1s infinite}
+.ai-dots i:nth-child(2){animation-delay:.16s}
+.ai-dots i:nth-child(3){animation-delay:.32s}
+@keyframes aiBlink{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.ai-sugs{flex:0 0 auto;display:flex;gap:7px;padding:4px 16px 8px;overflow-x:auto;scrollbar-width:none}
+.ai-sugs::-webkit-scrollbar{display:none}
+.ai-sugs button{flex:0 0 auto;padding:7px 12px;border-radius:99px;border:1px solid var(--line);
+  background:var(--card);color:var(--text-2);font-size:11.5px;font-weight:700;font-family:inherit;cursor:pointer}
+.ai-bar{flex:0 0 auto;display:flex;gap:8px;padding:6px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);background:var(--card)}
+.ai-bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:13px;border:1px solid var(--line);
+  background:var(--bg);color:var(--text);font-size:13.5px;font-weight:600;font-family:inherit}
+.ai-bar button{flex:0 0 auto;height:42px;padding:0 18px;border-radius:13px;border:none;font-size:13px;
+  font-weight:800;font-family:inherit;color:#fff;cursor:pointer;
+  background:linear-gradient(145deg,#ff9a5c,#ff6b2c);box-shadow:0 6px 16px rgba(255,107,44,.3),inset 0 1px 0 rgba(255,255,255,.4)}
+.ai-bar button:disabled{opacity:.5;box-shadow:none}
+</style>
+<button id="aiFab" aria-label="打开记账助手">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 3.2c-4.9 0-8.9 3.5-8.9 7.8 0 2.3 1.2 4.4 3.1 5.9v3.9l3.5-2c.75.19 1.53.29 2.3.29 4.9 0 8.9-3.5 8.9-7.8s-4-8.09-8.9-8.09Z" fill="currentColor"/>
+    <circle cx="8.6" cy="11" r="1.05" fill="#ff6b2c"/>
+    <circle cx="12" cy="11" r="1.05" fill="#ff6b2c"/>
+    <circle cx="15.4" cy="11" r="1.05" fill="#ff6b2c"/>
+  </svg>
+</button>
+<div id="aiMask"></div>
+<div id="aiPanel" role="dialog" aria-label="记账助手">
+  <div class="ai-grip"></div>
+  <div class="ai-head">
+    <div>
+      <div class="tt">记账助手</div>
+      <div class="ss" id="aiProviderHint">可以问我收入、最赚的一天、待结账</div>
     </div>
-    
-    <input type="password" id="user-api-key" placeholder="填你的智谱 API Key (仅保存在本地)" style="width:100%; padding:5px; margin-bottom:5px; border:1px solid #ddd; border-radius:5px; font-size:12px;">
-    
-    <div id="chat-history" style="flex:1; overflow-y:auto; font-size:14px; margin-bottom:10px; background:#f9f9f9; padding:5px;"></div>
-    
-    <div style="display:flex;">
-        <input type="text" id="ai-input" placeholder="问我关于记账的问题..." style="flex:1; padding:5px; border:1px solid #ddd; border-radius:5px;">
-        <button onclick="sendMessageToAI()" style="background:#ff7a45; color:white; border:none; padding:5px 10px; margin-left:5px; border-radius:5px;">发送</button>
+    <button class="ai-x" id="aiClose" aria-label="关闭">✕</button>
+  </div>
+  <div class="ai-cfg" id="aiCfg">
+    <div class="row">
+      <select id="aiProvider">
+        <option value="deepseek">DeepSeek</option>
+        <option value="siliconflow">硅基流动</option>
+        <option value="moonshot">Kimi</option>
+      </select>
+      <input id="aiKey" type="password" placeholder="粘贴 API Key" autocomplete="off" spellcheck="false">
     </div>
+    <div class="tip">Key 只存在你自己手机里，不会上传。<a id="aiKeyHelp" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">去获取 →</a></div>
+  </div>
+  <div class="ai-msgs" id="aiMsgs"></div>
+  <div class="ai-sugs" id="aiSugs">
+    <button data-q="这个月赚了多少？">本月赚了多少</button>
+    <button data-q="哪天赚得最多？">哪天最赚</button>
+    <button data-q="还有多少没结账？">待结账</button>
+    <button data-q="哪个兼职最划算？">哪个兼职好</button>
+  </div>
+  <div class="ai-bar">
+    <input id="aiInput" type="text" placeholder="问点什么…" enterkeyhint="send" autocomplete="off">
+    <button id="aiSend">发送</button>
+  </div>
 </div>
-
-<!-- 悬浮的打开按钮 -->
-<button onclick="document.getElementById('ai-chat-box').style.display='flex'" style="position:fixed; bottom:20px; right:20px; width:50px; height:50px; border-radius:50%; background:#ff7a45; color:white; border:none; box-shadow:0 4px 10px rgba(0,0,0,0.2); z-index:9999; font-size:24px;">💬</button>
 <script>
-document.getElementById('ai-input')?.addEventListener('keypress', function (e) {
-    if (e.key === 'Enter') sendMessageToAI();
-});
-
-async function sendMessageToAI() {
-    const input = document.getElementById('ai-input');
-    const keyInput = document.getElementById('user-api-key');
-    const chatHistory = document.getElementById('chat-history');
-    
-    const text = input.value.trim();
-    const apiKey = keyInput.value.trim();
-
-    if (!text) return;
-    if (!apiKey) {
-        alert('请先在上面输入你的智谱 API Key！');
-        return;
+(function(){
+  var PROV = {
+    deepseek:{
+      name:'DeepSeek', url:'https://api.deepseek.com/chat/completions', model:'deepseek-chat',
+      help:'https://platform.deepseek.com/api_keys'
+    },
+    siliconflow:{
+      name:'硅基流动', url:'https://api.siliconflow.cn/v1/chat/completions', model:'Qwen/Qwen2.5-7B-Instruct',
+      help:'https://cloud.siliconflow.cn/account/ak'
+    },
+    moonshot:{
+      name:'Kimi', url:'https://api.moonshot.cn/v1/chat/completions', model:'moonshot-v1-8k',
+      help:'https://platform.moonshot.cn/console/api-keys'
     }
+  };
+  var LS_KEY = 'gs_ai_cfg';
+  var cfg = { provider:'deepseek', keys:{} };
+  try{
+    var saved = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
+    if(saved.provider && PROV[saved.provider]) cfg.provider = saved.provider;
+    if(saved.keys) cfg.keys = saved.keys;
+  }catch(e){}
 
-    chatHistory.innerHTML += `<div style="text-align:right; margin:5px 0;"><span style="background:#e6f7ff; padding:5px 8px; border-radius:5px; display:inline-block;">${text}</span></div>`;
+  var fab = document.getElementById('aiFab');
+  var panel = document.getElementById('aiPanel');
+  var mask = document.getElementById('aiMask');
+  var msgs = document.getElementById('aiMsgs');
+  var input = document.getElementById('aiInput');
+  var sendBtn = document.getElementById('aiSend');
+  var sel = document.getElementById('aiProvider');
+  var keyEl = document.getElementById('aiKey');
+  var hint = document.getElementById('aiProviderHint');
+  var help = document.getElementById('aiKeyHelp');
+  var sugs = document.getElementById('aiSugs');
+  var history = [];
+  var busy = false;
+
+  function saveCfg(){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(cfg)); }catch(e){}
+  }
+  function syncCfgUI(){
+    sel.value = cfg.provider;
+    keyEl.value = cfg.keys[cfg.provider] || '';
+    var p = PROV[cfg.provider];
+    hint.textContent = p.name + ' · ' + p.model;
+    help.href = p.help;
+    help.textContent = '去 ' + p.name + ' 获取 →';
+  }
+  sel.addEventListener('change', function(){
+    cfg.provider = sel.value; saveCfg(); syncCfgUI();
+  });
+  keyEl.addEventListener('change', function(){
+    cfg.keys[cfg.provider] = keyEl.value.trim(); saveCfg();
+  });
+  keyEl.addEventListener('blur', function(){
+    cfg.keys[cfg.provider] = keyEl.value.trim(); saveCfg();
+  });
+
+  function openPanel(){
+    panel.style.display = 'flex';
+    void panel.offsetHeight;
+    panel.classList.add('on');
+    mask.classList.add('on');
+    if(!history.length) greet();
+    setTimeout(function(){ input.focus({preventScroll:true}); }, 320);
+  }
+  function closePanel(){
+    panel.classList.remove('on');
+    mask.classList.remove('on');
+    setTimeout(function(){ if(!panel.classList.contains('on')) panel.style.display='none'; }, 320);
+  }
+  fab.addEventListener('click', openPanel);
+  document.getElementById('aiClose').addEventListener('click', closePanel);
+  mask.addEventListener('click', closePanel);
+
+  function bubble(text, cls){
+    var d = document.createElement('div');
+    d.className = 'ai-msg ' + cls;
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+  function waiting(){
+    var d = document.createElement('div');
+    d.className = 'ai-dots';
+    d.innerHTML = '<i></i><i></i><i></i>';
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+
+  function greet(){
+    var s = summary();
+    var t = s.count
+      ? '你好，我是记账助手。\n看得到你本月 ' + s.count + ' 笔记录，收入 ' + money(s.income) + '，还有 ' + money(s.unpaid) + ' 没结账。想问什么直接说。'
+      : '你好，我是记账助手。\n这个月还没有记录，先记一笔再来问我，我能帮你算收入、找最赚的一天。';
+    bubble(t, 'bot');
+  }
+
+  function money(n){
+    n = Math.round(Number(n)||0);
+    return '¥' + n.toLocaleString('zh-CN');
+  }
+  function fmtDate(d){
+    if(!d) return '';
+    var p = String(d).split('-');
+    return p.length === 3 ? (Number(p[1]) + '月' + Number(p[2]) + '日') : String(d);
+  }
+
+  function summary(){
+    var st = {};
+    try{ st = JSON.parse(localStorage.getItem('gongshi_v1') || '{}'); }catch(e){}
+    var recs = Object.values(st.records || {});
+    var now = new Date();
+    var ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    var cur = recs.filter(function(r){ return String(r.date||'').slice(0,7) === ym; });
+    var income = 0, hours = 0, unpaid = 0, unpaidN = 0;
+    var byJob = {}, byDay = {};
+    cur.forEach(function(r){
+      var amt = (Number(r.hours)||0) * (Number(r.rate)||0);
+      income += amt; hours += Number(r.hours)||0;
+      if(!r.paid){ unpaid += amt; unpaidN++; }
+      var n = r.name || '未命名';
+      if(!byJob[n]) byJob[n] = { amt:0, h:0, c:0 };
+      byJob[n].amt += amt; byJob[n].h += Number(r.hours)||0; byJob[n].c++;
+      if(!byDay[r.date]) byDay[r.date] = { amt:0, c:0 };
+      byDay[r.date].amt += amt; byDay[r.date].c++;
+    });
+    var jobs = Object.keys(byJob).map(function(k){ return { n:k, v:byJob[k] }; })
+      .sort(function(a,b){ return b.v.amt - a.v.amt; });
+    var days = Object.keys(byDay).map(function(k){ return { d:k, v:byDay[k] }; })
+      .sort(function(a,b){ return b.v.amt - a.v.amt; });
+    return {
+      ym:ym, today: now.toISOString().slice(0,10), count:cur.length,
+      income:income, hours:hours, unpaid:unpaid, unpaidN:unpaidN,
+      jobs:jobs, days:days,
+      recent: cur.slice().sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); }).slice(0,6)
+    };
+  }
+
+  function contextText(){
+    var s = summary();
+    if(!s.count){
+      return '【数据】今天是 ' + s.today + '，本月（' + s.ym + '）没有任何记录。若用户问收入等，请说明本月还没有记录。';
+    }
+    var lines = [];
+    lines.push('【数据】今天是 ' + s.today + '，本月 ' + s.ym);
+    lines.push('本月合计：' + s.count + ' 笔，' + (Math.round(s.hours*10)/10) + ' 小时，收入 ' + money(s.income) +
+      '；未结账 ' + s.unpaidN + ' 笔共 ' + money(s.unpaid));
+    lines.push('按兼职：' + s.jobs.slice(0,8).map(function(j){
+      return j.n + '（' + j.v.c + '笔/' + (Math.round(j.v.h*10)/10) + 'h/' + money(j.v.amt) + '）';
+    }).join('；'));
+    lines.push('按天收入前 5：' + s.days.slice(0,5).map(function(d){
+      return fmtDate(d.d) + ' ' + money(d.v.amt) + '（' + d.v.c + '班）';
+    }).join('；'));
+    lines.push('最近记录：' + s.recent.map(function(r){
+      return fmtDate(r.date) + ' ' + (r.name||'未命名') + ' ' + (r.hours||0) + 'h ' +
+        money((Number(r.hours)||0)*(Number(r.rate)||0)) + (r.paid ? '（已结）' : '（未结）');
+    }).join('；'));
+    return lines.join('\n');
+  }
+
+  var SYS = '你是「记工喵」App 里的记账助手。用户是打零工/兼职的人，记工时和收入。\n' +
+    '回答要求：中文，简短口语，一般 1~3 句，直接给结论和数字，不要分点列表，不要复述数据原文。\n' +
+    '只能依据下面提供的数据回答；数据里没有的信息就说不知道，绝不编造。金额用 ¥。\n' +
+    '如果用户问的是记账之外的事，简短回答即可。\n\n';
+
+  function pushHistory(role, content){
+    history.push({ role:role, content:content });
+    if(history.length > 12) history = history.slice(-12);
+  }
+
+  async function send(text){
+    text = (text || '').trim();
+    if(!text || busy) return;
+    var key = (cfg.keys[cfg.provider] || '').trim();
+    bubble(text, 'me');
     input.value = '';
-    chatHistory.scrollTop = chatHistory.scrollHeight;
+    if(!key){
+      bubble('先在上面填一下 ' + PROV[cfg.provider].name + ' 的 API Key，填一次就会记住。', 'err');
+      document.getElementById('aiCfg').scrollIntoView({ block:'nearest' });
+      keyEl.focus();
+      return;
+    }
+    busy = true; sendBtn.disabled = true;
+    var dot = waiting();
+    var p = PROV[cfg.provider];
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 40000);
 
-    const loadingId = 'loading-' + Date.now();
-    chatHistory.innerHTML += `<div id="${loadingId}" style="text-align:left; margin:5px 0; color:#888;">AI 思考中...</div>`;
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-
-    // ==========================================
-    // ⚠️ 注意：把下面单引号里的字，换成你的 Cloudflare 网址
-    const PROXY_URL = 'https://jigongmiao-api.2352139089.workers.dev'; 
-    // ==========================================
-
-    const directUrl = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-    const proxyUrl = PROXY_URL; 
-
-    const requestOptions = {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-            model: 'glm-4.7-flash',
-            messages: [{ role: 'user', content: text }]
-        })
+    var payload = {
+      model: p.model,
+      temperature: 0.3,
+      messages: [{ role:'system', content: SYS + contextText() }].concat(history, [{ role:'user', content:text }])
     };
 
-    try {
-        let response;
-        let usedProxy = false;
+    try{
+      var res = await fetch(p.url, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      var raw = await res.text();
+      var data = null;
+      try{ data = JSON.parse(raw); }catch(e){}
 
-        try {
-            // 第一方案：先尝试直连
-            response = await fetch(directUrl, requestOptions);
-            if (!response.ok) throw new Error('直连失败');
-        } catch (directError) {
-            console.log('直连受阻，切换至 Cloudflare 中转站...');
-            usedProxy = true;
-            // 第二方案：切换到中转站
-            response = await fetch(proxyUrl, requestOptions);
-        }
+      if(dot.parentNode) dot.remove();
 
-        const data = await response.json();
-        document.getElementById(loadingId)?.remove();
+      if(!res.ok){
+        var m = (data && data.error && (data.error.message || data.error.code)) || raw.slice(0, 120) || ('HTTP ' + res.status);
+        var tip = '';
+        if(res.status === 401) tip = 'Key 无效或已失效，去 ' + p.name + ' 重新复制一个。';
+        else if(res.status === 402) tip = '账户余额不足，先去充值。';
+        else if(res.status === 429) tip = '请求太频繁或额度用完，等一会儿再试。';
+        else if(res.status === 404) tip = '接口地址不对（' + p.name + '）。';
+        else if(res.status === 400 && /model/i.test(String(m))) tip = '模型名不认识：' + p.model;
+        else tip = m;
+        bubble(tip + '\n（HTTP ' + res.status + '）', 'err');
+        busy = false; sendBtn.disabled = false;
+        return;
+      }
 
-        if (!response.ok) {
-            let errorMsg = data.error ? data.error.message : JSON.stringify(data);
-            let route = usedProxy ? '中转站' : '直连';
-            chatHistory.innerHTML += `<div style="color:red; text-align:left; margin:5px 0; font-size:12px;">[${route}] 接口报错(${response.status})：${errorMsg}</div>`;
-        } else if (data.choices && data.choices.length > 0) {
-            const aiReply = data.choices[0].message.content;
-            let routeTip = usedProxy ? '<span style="font-size:10px; color:#aaa;">(通过中转站)</span> ' : '';
-            chatHistory.innerHTML += `<div style="text-align:left; margin:5px 0;">${routeTip}<span style="background:#fff; border:1px solid #eee; padding:5px 8px; border-radius:5px; display:inline-block;">${aiReply}</span></div>`;
-        }
-    } catch (error) {
-        document.getElementById(loadingId)?.remove();
-        chatHistory.innerHTML += `<div style="color:red; text-align:left; margin:5px 0; font-size:12px;">两条路都走不通。错误详情：${error.message}</div>`;
+      var reply = data && data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content : '';
+      if(!reply){
+        bubble('接口返回了空内容，换个问法试试。', 'err');
+      }else{
+        bubble(reply.trim(), 'bot');
+        pushHistory('user', text);
+        pushHistory('assistant', reply.trim());
+      }
+    }catch(err){
+      clearTimeout(timer);
+      if(dot.parentNode) dot.remove();
+      var msg = String(err && err.message || err);
+      if(msg.indexOf('abort') >= 0 || err.name === 'AbortError'){
+        bubble('等太久了，网络可能不通，稍后再试。', 'err');
+      }else if(msg.indexOf('Failed to fetch') >= 0 || msg.indexOf('NetworkError') >= 0){
+        bubble('请求没发出去。可能是网络问题，或页面安全策略拦了外链请求。', 'err');
+      }else{
+        bubble('出错了：' + msg, 'err');
+      }
     }
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-}
+    busy = false; sendBtn.disabled = false;
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  sendBtn.addEventListener('click', function(){ send(input.value); });
+  input.addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); send(input.value); }
+  });
+  sugs.addEventListener('click', function(e){
+    var b = e.target.closest('button[data-q]');
+    if(b) send(b.dataset.q);
+  });
+
+  // 键盘弹出时收一下高度，避免输入框被顶出屏幕
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', function(){
+      if(!panel.classList.contains('on')) return;
+      var h = Math.min(window.visualViewport.height * 0.92, 640);
+      panel.style.height = h + 'px';
+      msgs.scrollTop = msgs.scrollHeight;
+    });
+  }
+
+  syncCfgUI();
+})();
 </script>
-</script>  
 </body>
 </html>
