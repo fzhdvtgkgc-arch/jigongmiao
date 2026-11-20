@@ -1074,7 +1074,7 @@ function initial(name){
 
 /* ================= 状态 ================= */
 const KEY='gongshi_v1';
-const APP_VERSION='1.3.3';
+const APP_VERSION='1.3.4';
 function emptyState(){
   return { version:1, records:{}, presets:[], settings:{currency:'¥', theme:'light', autoBackup:true, jobColors:{}} };
 }
@@ -3612,6 +3612,19 @@ window.addEventListener('pagehide', function(){ if(snapTimer) flushSnap(); });
 document.addEventListener('DOMContentLoaded', boot);
 if(document.readyState!=='loading') boot();
 
+/* 供 AI 助手模块调用的受控接口（只暴露白名单函数） */
+window.__gs = {
+  get state(){ return state; },
+  save: save,
+  uid: uid,
+  toast: toast,
+  renderCalendar: renderCalendar,
+  renderStats: renderStats,
+  renderPresets: renderPresets,
+  renderSettings: renderSettings,
+  getView: function(){ return view; }
+};
+
 })();
 </script>
 <!-- ============ AI 记账助手 ============ -->
@@ -3676,6 +3689,26 @@ if(document.readyState!=='loading') boot();
   font-weight:800;font-family:inherit;color:#fff;cursor:pointer;
   background:linear-gradient(145deg,#ff9a5c,#ff6b2c);box-shadow:0 6px 16px rgba(255,107,44,.3),inset 0 1px 0 rgba(255,255,255,.4)}
 .ai-bar button:disabled{opacity:.5;box-shadow:none}
+.ai-act{align-self:stretch;max-width:92%;background:var(--card);border:1px solid var(--line);
+  border-radius:15px;padding:11px 13px;box-shadow:0 4px 14px rgba(0,0,0,.07)}
+.ai-act .h{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:800;letter-spacing:-.2px}
+.ai-act .h .ic{width:22px;height:22px;border-radius:7px;background:linear-gradient(145deg,#ff9a5c,#ff6b2c);
+  color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto}
+.ai-act .d{margin-top:6px;font-size:12px;color:var(--text-2);font-weight:600;line-height:1.65;white-space:pre-wrap}
+.ai-act .d b{color:var(--text);font-weight:800}
+.ai-act .b{display:flex;gap:8px;margin-top:9px}
+.ai-act .b button{flex:1;height:34px;border-radius:10px;border:none;font-size:12.5px;font-weight:800;
+  font-family:inherit;cursor:pointer}
+.ai-act .ok{background:linear-gradient(145deg,#ff9a5c,#ff6b2c);color:#fff;
+  box-shadow:0 4px 12px rgba(255,107,44,.28),inset 0 1px 0 rgba(255,255,255,.4)}
+.ai-act .no{background:var(--bg);border:1px solid var(--line);color:var(--text-2)}
+.ai-act.done{border-color:#bfe8c8;background:#f2fbf4}
+.ai-act.done .h .ic{background:linear-gradient(145deg,#5fbf77,#3d9e57)}
+.ai-act.done .d{color:#2c7a44}
+[data-theme="dark"] .ai-act.done{background:#13231a;border-color:#2c5a3c}
+[data-theme="dark"] .ai-act.done .d{color:#8fd8a5}
+.ai-act.cancel{opacity:.55}
+.ai-act.cancel .d{color:var(--text-3)}
 </style>
 <button id="aiFab" aria-label="打开记账助手">
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -3852,8 +3885,10 @@ if(document.readyState!=='loading') boot();
       .sort(function(a,b){ return b.v.amt - a.v.amt; });
     var days = Object.keys(byDay).map(function(k){ return { d:k, v:byDay[k] }; })
       .sort(function(a,b){ return b.v.amt - a.v.amt; });
+    var presets = (st.presets||[]).map(function(p){ return { n:p.name||'未命名', r:p.rate||0, h:p.hours||0 }; });
     return {
       ym:ym, today: now.toISOString().slice(0,10), count:cur.length,
+      presets:presets,
       income:income, hours:hours, unpaid:unpaid, unpaidN:unpaidN,
       jobs:jobs, days:days,
       recent: cur.slice().sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); }).slice(0,6)
@@ -3875,6 +3910,9 @@ if(document.readyState!=='loading') boot();
     lines.push('按天收入前 5：' + s.days.slice(0,5).map(function(d){
       return fmtDate(d.d) + ' ' + money(d.v.amt) + '（' + d.v.c + '班）';
     }).join('；'));
+    lines.push('快捷方式：' + (s.presets.length ? s.presets.map(function(p){
+      return p.n + '（时薪' + p.r + (p.h ? '/默认' + p.h + 'h' : '') + '）';
+    }).join('；') : '无'));
     lines.push('最近记录：' + s.recent.map(function(r){
       return fmtDate(r.date) + ' ' + (r.name||'未命名') + ' ' + (r.hours||0) + 'h ' +
         money((Number(r.hours)||0)*(Number(r.rate)||0)) + (r.paid ? '（已结）' : '（未结）');
@@ -3882,10 +3920,17 @@ if(document.readyState!=='loading') boot();
     return lines.join('\n');
   }
 
-  var SYS = '你是「记工喵」App 里的记账助手。用户是打零工/兼职的人，记工时和收入。\n' +
-    '回答要求：中文，简短口语，一般 1~3 句，直接给结论和数字，不要分点列表，不要复述数据原文。\n' +
-    '只能依据下面提供的数据回答；数据里没有的信息就说不知道，绝不编造。金额用 ¥。\n' +
-    '如果用户问的是记账之外的事，简短回答即可。\n\n';
+  var SYS = '你是「记工喵」App 里的记账助手，用户是打零工/兼职的人。\n' +
+    '回答要求：中文，简短口语，1~3 句，直接给结论和数字，不要分点列表。金额用 ¥。\n' +
+    '只能依据数据回答，没有的信息就说不知道，绝不编造。\n\n' +
+    '【执行操作】当用户想添加/修改/删除/结账时，先简短说明你要做什么（1句），再在回复最后追加一个 json 代码块，格式（字段名固定英文，值里不要有注释）：\n' +
+    '添加快捷方式：```json {"action":"add_preset","name":"星巴克","rate":22,"hours":4}```\n' +
+    '修改快捷方式：```json {"action":"update_preset","name":"星巴克","rate":25,"hours":4}```\n' +
+    '记一笔：```json {"action":"add_record","name":"星巴克","date":"2026-11-20","hours":4,"rate":22,"paid":false}```\n' +
+    '删除记录：```json {"action":"delete_record","date":"2026-11-20","name":"星巴克"}```\n' +
+    '结账/取消结账：```json {"action":"set_paid","paid":true,"date":"2026-11-20","name":"星巴克"}```\n' +
+    '规则：只在用户明确要求改动时输出 json，纯提问绝对不要输出；name 用记录里出现的写法；date 必须 YYYY-MM-DD（今天是 {TODAY}）；' +
+    'delete_record 和 set_paid 的 date/name 都是可选过滤条件，缺省表示全部匹配；set_paid 时 paid=true 表示结账。\n\n';
 
   function pushHistory(role, content){
     history.push({ role:role, content:content });
@@ -3913,7 +3958,7 @@ if(document.readyState!=='loading') boot();
     var payload = {
       model: p.model,
       temperature: 0.3,
-      messages: [{ role:'system', content: SYS + contextText() }].concat(history, [{ role:'user', content:text }])
+      messages: [{ role:'system', content: (SYS + contextText()).replace('{TODAY}', ymdOf(new Date())) }].concat(history, [{ role:'user', content:text }])
     };
 
     try{
@@ -3949,7 +3994,10 @@ if(document.readyState!=='loading') boot();
       if(!reply){
         bubble('接口返回了空内容，换个问法试试。', 'err');
       }else{
-        bubble(reply.trim(), 'bot');
+        var act = parseAction(reply);
+        var shown = act ? stripAction(reply) : reply.trim();
+        if(shown) bubble(shown.trim(), 'bot');
+        if(act) actionCard(act);
         pushHistory('user', text);
         pushHistory('assistant', reply.trim());
       }
@@ -3967,6 +4015,194 @@ if(document.readyState!=='loading') boot();
     }
     busy = false; sendBtn.disabled = false;
     msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  /* ---------- 操作解析与执行 ---------- */
+  var ACT_META = {
+    add_preset:   { t:'添加快捷方式', ic:'＋' },
+    update_preset:{ t:'修改快捷方式', ic:'✎' },
+    add_record:   { t:'记一笔',       ic:'✚' },
+    delete_record:{ t:'删除记录',     ic:'−' },
+    set_paid:     { t:'结账状态变更', ic:'✓' }
+  };
+  function normDate(v){
+    var s = String(v||'').trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var now = new Date();
+    if(/今天|today/i.test(s)) return ymdOf(now);
+    if(/明天|tomorrow/i.test(s)){ now.setDate(now.getDate()+1); return ymdOf(now); }
+    if(/昨天|yesterday/i.test(s)){ now.setDate(now.getDate()-1); return ymdOf(now); }
+    var m = s.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+    if(m) return m[1]+'-'+String(Number(m[2])).padStart(2,'0')+'-'+String(Number(m[3])).padStart(2,'0');
+    m = s.match(/(\d{1,2})[-/.月](\d{1,2})[日]?/);
+    if(m){
+      var y = now.getFullYear();
+      var mm = Number(m[1]), dd = Number(m[2]);
+      if(mm < now.getMonth()+1) y++;
+      return y+'-'+String(mm).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+    }
+    return null;
+  }
+  function ymdOf(d){
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  function parseAction(text){
+    var t = String(text||'');
+    var m = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+    var raw = m ? m[1] : (t.trim().charAt(0) === '{' ? t.trim() : null);
+    if(!raw) return null;
+    try{
+      var o = JSON.parse(raw);
+      return (o && o.action && ACT_META[o.action]) ? o : null;
+    }catch(e){ return null; }
+  }
+  function stripAction(text){
+    return String(text||'').replace(/```(?:json)?[\s\S]*?```/g, '').trim();
+  }
+  function core(){
+    var g = window.__gs;
+    if(!g || !g.state || typeof g.save !== 'function') return null;
+    return g;
+  }
+  function matchRecords(act){
+    var g = core();
+    if(!g) return [];
+    var list = Object.keys(g.state.records||{}).map(function(k){ return g.state.records[k]; });
+    var d = normDate(act.date);
+    if(d) list = list.filter(function(r){ return r.date === d; });
+    var n = String(act.name||'').trim();
+    if(n) list = list.filter(function(r){ return (r.name||'').indexOf(n) >= 0; });
+    return list;
+  }
+  function recLine(r){
+    return fmtDate(r.date) + ' ' + (r.name||'未命名') + ' ' + (r.hours||0) + 'h×' + (r.rate||0) +
+      '=' + money((Number(r.hours)||0)*(Number(r.rate)||0)) + (r.paid ? '(已结)' : '(未结)');
+  }
+  function describe(act){
+    var meta = ACT_META[act.action];
+    var head = meta.t, body = '';
+    var name = String(act.name||'').trim();
+    var rate = Number(act.rate)||0, hours = Number(act.hours)||0;
+    if(act.action === 'add_preset' || act.action === 'update_preset'){
+      body = '名称 <b>' + esc2(name || '（未给）') + '</b> · 时薪 <b>¥' + rate + '</b>' +
+        (hours ? ' · 默认 <b>' + hours + 'h</b>' : '');
+    }else if(act.action === 'add_record'){
+      var d = normDate(act.date) || ymdOf(new Date());
+      body = fmtDate(d) + ' · <b>' + esc2(name||'未命名') + '</b>\n' +
+        (hours||0) + 'h × ¥' + rate + ' = <b>' + money(hours*rate) + '</b>' +
+        (act.paid ? ' · 已结' : ' · 未结');
+    }else{
+      var list = matchRecords(act);
+      if(act.action === 'set_paid'){
+        var on = act.paid !== false;
+        if(on) list = list.filter(function(r){ return !r.paid; });
+        body = '共 <b>' + list.length + '</b> 条' + (list.length ? '\n' + list.slice(0,4).map(recLine).join('\n') : '');
+      }else{
+        body = '将删除 <b>' + list.length + '</b> 条' + (list.length ? '\n' + list.slice(0,4).map(recLine).join('\n') : '');
+      }
+    }
+    return { head:head, body:body, list:list };
+  }
+  function esc2(t){
+    return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function actionCard(act){
+    var info = describe(act);
+    if((act.action === 'delete_record' || act.action === 'set_paid') && !info.list.length){
+      bubble('没找到匹配的记录，检查一下日期或名称。', 'err');
+      return;
+    }
+    var d = document.createElement('div');
+    d.className = 'ai-act';
+    d.innerHTML =
+      '<div class="h"><span class="ic">' + ACT_META[act.action].ic + '</span>' + ACT_META[act.action].t + '</div>' +
+      '<div class="d">' + info.body + '</div>' +
+      '<div class="b"><button class="ok">确认执行</button><button class="no">取消</button></div>';
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    var okBtn = d.querySelector('.ok'), noBtn = d.querySelector('.no');
+    function finish(cls, txt){
+      d.className = 'ai-act ' + cls;
+      d.querySelector('.b').remove();
+      d.querySelector('.d').textContent = txt;
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+    noBtn.addEventListener('click', function(){ finish('cancel', '已取消，没有改动任何数据。'); });
+    okBtn.addEventListener('click', function(){
+      var msg = execAction(act);
+      finish(msg.ok ? 'done' : 'cancel', msg.text);
+      if(msg.ok){
+        bubble('已经帮你办好了。', 'bot');
+        pushHistory('assistant', '（已执行：' + ACT_META[act.action].t + '）');
+      }
+    });
+  }
+  function execAction(act){
+    var g = core();
+    if(!g) return { ok:false, text:'页面核心数据不可用，请刷新页面再试。' };
+    var st = g.state;
+    try{
+      var today = ymdOf(new Date());
+      if(act.action === 'add_preset'){
+        var name = String(act.name||'').trim();
+        if(!name) return { ok:false, text:'没有名称，无法添加。' };
+        if((st.presets||[]).some(function(x){ return x.name === name; }))
+          return { ok:false, text:'已经有同名快捷方式「' + name + '」，没有重复添加。' };
+        st.presets.push({ id:g.uid(), name:name, rate:Number(act.rate)||0, hours:Number(act.hours)||0 });
+        g.save(); afterChange();
+        return { ok:true, text:'已添加快捷方式「' + name + '」（时薪 ¥' + (Number(act.rate)||0) + '）' };
+      }
+      if(act.action === 'update_preset'){
+        var name2 = String(act.name||'').trim();
+        var ps = (st.presets||[]).filter(function(x){ return x.name === name2 || x.name.indexOf(name2) >= 0; });
+        if(!ps.length) return { ok:false, text:'没找到叫「' + name2 + '」的快捷方式。' };
+        ps.forEach(function(x){
+          if(act.rate != null) x.rate = Number(act.rate)||0;
+          if(act.hours != null) x.hours = Number(act.hours)||0;
+        });
+        g.save(); afterChange();
+        return { ok:true, text:'已更新快捷方式「' + ps[0].name + '」' };
+      }
+      if(act.action === 'add_record'){
+        var d = normDate(act.date) || today;
+        var rec = {
+          id: g.uid(), date:d,
+          name: String(act.name||'').trim() || '未命名',
+          hours: Number(act.hours)||0, rate: Number(act.rate)||0,
+          paid: !!act.paid, note: String(act.note||''), createdAt: Date.now()
+        };
+        st.records[rec.id] = rec;
+        g.save(); afterChange();
+        return { ok:true, text:'已在 ' + fmtDate(d) + ' 记一笔「' + rec.name + '」' + rec.hours + 'h，' + money(rec.hours*rec.rate) };
+      }
+      if(act.action === 'delete_record'){
+        var list = matchRecords(act);
+        if(!list.length) return { ok:false, text:'没找到匹配的记录。' };
+        list.forEach(function(r){ delete st.records[r.id]; });
+        g.save(); afterChange();
+        return { ok:true, text:'已删除 ' + list.length + ' 条记录' };
+      }
+      if(act.action === 'set_paid'){
+        var on = act.paid !== false;
+        var list2 = matchRecords(act).filter(function(r){ return on ? !r.paid : !!r.paid; });
+        if(!list2.length) return { ok:false, text:on ? '没有需要结账的记录。' : '没有已结账的记录可取消。' };
+        list2.forEach(function(r){ r.paid = on; });
+        g.save(); afterChange();
+        return { ok:true, text:(on ? '已把 ' : '已取消 ') + list2.length + ' 条记录的结账状态' };
+      }
+      return { ok:false, text:'不认识这个操作。' };
+    }catch(e){
+      return { ok:false, text:'执行出错：' + (e && e.message || e) };
+    }
+  }
+  function afterChange(){
+    try{
+      var g = window.__gs; if(!g) return;
+      g.renderCalendar();
+      if(g.getView && g.getView() === 'stats') g.renderStats();
+      if(g.renderPresets) g.renderPresets();
+      if(g.renderSettings) g.renderSettings();
+    }catch(e){}
   }
 
   sendBtn.addEventListener('click', function(){ send(input.value); });
