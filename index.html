@@ -1113,7 +1113,7 @@ function initial(name){
 
 /* ================= 状态 ================= */
 const KEY='gongshi_v1';
-const APP_VERSION='1.3.7';
+const APP_VERSION='1.3.8';
 function emptyState(){
   return { version:1, records:{}, presets:[], settings:{currency:'¥', theme:'light', autoBackup:true, jobColors:{}} };
 }
@@ -1688,7 +1688,6 @@ function renderSheet(){
       '</div>'+
       '<div style="display:flex;gap:8px;flex:0 0 auto">'+
         '<button class="close-btn" id="jumpForm" aria-label="'+(ed?'定位到修改表单':'新建快捷方式')+'" style="color:var(--primary);font-weight:800;font-size:15px">'+(ed?'↓':'＋')+'</button>'+
-        '<button class="close-btn" id="sheetClose" aria-label="关闭">✕</button>'+
       '</div>'+
     '</div>'+
 
@@ -3056,6 +3055,82 @@ function bind(){
   });
 
   $('#mask').addEventListener('click', closeSheet);
+
+  /* 日期面板：下拉关闭（面板滚到顶部时，向下拖超过阈值松手即关，不够则回弹） */
+  (function(){
+    const sheetEl = $('#sheet'), maskEl = $('#mask');
+    let startY = 0, startX = 0, lastY = 0, lastT = 0, dy = 0, vel = 0;
+    let engaging = false, pulling = false;
+
+    function isDaySheet(){
+      return sheetEl.classList.contains('on') && !!$('#sheetBody .sheet-total');
+    }
+    function reset(){
+      sheetEl.style.transition = ''; sheetEl.style.transform = '';
+      maskEl.style.transition = ''; maskEl.style.opacity = '';
+    }
+
+    sheetEl.addEventListener('touchstart', function(e){
+      if(!isDaySheet() || e.touches.length !== 1) return;
+      if(sheetEl.scrollTop > 0) return;
+      const t = e.touches[0];
+      startY = t.clientY; startX = t.clientX;
+      lastY = t.clientY; lastT = Date.now();
+      dy = 0; vel = 0; engaging = true; pulling = false;
+    }, { passive:true });
+
+    sheetEl.addEventListener('touchmove', function(e){
+      if(!engaging || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const d = t.clientY - startY;
+      const dx = Math.abs(t.clientX - startX);
+
+      if(!pulling){
+        if(d > 12 && d > dx * 1.4 && sheetEl.scrollTop <= 0) pulling = true;
+        else return;
+      }
+      if(e.cancelable) e.preventDefault();
+
+      const now = Date.now();
+      if(now > lastT){ vel = (t.clientY - lastY) / Math.max(1, now - lastT); lastY = t.clientY; lastT = now; }
+
+      dy = Math.max(0, d);
+      // 越往下越沉，像有橡皮筋
+      const shift = dy < 120 ? dy : 120 + (dy - 120) * 0.34;
+      sheetEl.style.transition = 'none';
+      sheetEl.style.transform = 'translateY(' + shift + 'px)';
+      maskEl.style.transition = 'none';
+      maskEl.style.opacity = String(Math.max(0.2, 1 - shift / 560));
+      if(navigator.vibrate && dy > 110 && !sheetEl.dataset.hinted){
+        sheetEl.dataset.hinted = '1';
+        navigator.vibrate(8);
+      }
+    }, { passive:false });
+
+    function endDrag(){
+      if(!pulling){ engaging = false; return; }
+      engaging = false; pulling = false;
+      const fast = vel > 0.6 && dy > 46;
+      const far = dy > 118;
+      sheetEl.style.transition = 'transform .28s cubic-bezier(.32,.72,0,1)';
+      maskEl.style.transition = 'opacity .28s ease';
+      if(fast || far){
+        sheetEl.style.transform = 'translateY(102%)';
+        maskEl.style.opacity = '0';
+        setTimeout(function(){
+          closeSheet();
+          reset();
+          delete sheetEl.dataset.hinted;
+        }, 250);
+      }else{
+        sheetEl.style.transform = 'translateY(0)';
+        maskEl.style.opacity = '1';
+        setTimeout(reset, 300);
+      }
+    }
+    sheetEl.addEventListener('touchend', endDrag);
+    sheetEl.addEventListener('touchcancel', endDrag);
+  })();
   document.addEventListener('keydown', function(e){
     if(e.key==='Escape'){ closeSheet(); return; }
     const tag = (document.activeElement && document.activeElement.tagName) || '';
