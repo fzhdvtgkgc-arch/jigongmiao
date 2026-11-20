@@ -1074,7 +1074,7 @@ function initial(name){
 
 /* ================= 状态 ================= */
 const KEY='gongshi_v1';
-const APP_VERSION='1.3.4';
+const APP_VERSION='1.3.5';
 function emptyState(){
   return { version:1, records:{}, presets:[], settings:{currency:'¥', theme:'light', autoBackup:true, jobColors:{}} };
 }
@@ -3745,6 +3745,7 @@ window.__gs = {
     <button data-q="哪天赚得最多？">哪天最赚</button>
     <button data-q="还有多少没结账？">待结账</button>
     <button data-q="哪个兼职最划算？">哪个兼职好</button>
+    <button data-q="把这个月没结账的全部结了">全结了</button>
   </div>
   <div class="ai-bar">
     <input id="aiInput" type="text" placeholder="问点什么…" enterkeyhint="send" autocomplete="off">
@@ -3929,8 +3930,13 @@ window.__gs = {
     '记一笔：```json {"action":"add_record","name":"星巴克","date":"2026-11-20","hours":4,"rate":22,"paid":false}```\n' +
     '删除记录：```json {"action":"delete_record","date":"2026-11-20","name":"星巴克"}```\n' +
     '结账/取消结账：```json {"action":"set_paid","paid":true,"date":"2026-11-20","name":"星巴克"}```\n' +
+    '修改已有记录：```json {"action":"update_record","name":"星巴克","date":"2026-11-20","hours":7,"rate":25}```（hours/rate/date/newName/note/paid 都是可选，只写用户要改的；date+name 是定位条件）\n' +
+    '删除快捷方式：```json {"action":"delete_preset","name":"星巴克"}```\n' +
+    '改工种颜色：```json {"action":"set_color","name":"星巴克","color":"#3B82F6"}```（color 必须 #RRGGBB 六位十六进制，用户说蓝色就用 #3B82F6、绿色 #22C55E、橙色 #F97316、紫色 #8B5CF6、粉色 #EC4899、黄色 #EAB308、青色 #06B6D4、红色 #EF4444、灰色 #6B7280）\n' +
+    '批量改名：```json {"action":"rename_job","from":"星巴克咖啡","to":"星巴克"}```（把所有叫 from 的记录和快捷方式统一改叫 to）\n' +
     '规则：只在用户明确要求改动时输出 json，纯提问绝对不要输出；name 用记录里出现的写法；date 必须 YYYY-MM-DD（今天是 {TODAY}）；' +
-    'delete_record 和 set_paid 的 date/name 都是可选过滤条件，缺省表示全部匹配；set_paid 时 paid=true 表示结账。\n\n';
+    'delete_record、update_record 和 set_paid 的 date/name 都是可选过滤条件，至少给一个，避免误伤（也可用 "month":"YYYY-MM" 按月过滤）；set_paid 时 paid=true 表示结账；' +
+    '改颜色时若用户没说要什么颜色，先问一句再输出。\n\n';
 
   function pushHistory(role, content){
     history.push({ role:role, content:content });
@@ -4021,9 +4027,13 @@ window.__gs = {
   var ACT_META = {
     add_preset:   { t:'添加快捷方式', ic:'＋' },
     update_preset:{ t:'修改快捷方式', ic:'✎' },
+    delete_preset:{ t:'删除快捷方式', ic:'🗑' },
     add_record:   { t:'记一笔',       ic:'✚' },
     delete_record:{ t:'删除记录',     ic:'−' },
-    set_paid:     { t:'结账状态变更', ic:'✓' }
+    update_record:{ t:'修改记录',     ic:'✎' },
+    set_paid:     { t:'结账状态变更', ic:'✓' },
+    set_color:    { t:'改工种颜色',   ic:'🎨' },
+    rename_job:   { t:'批量改名',     ic:'⇄' }
   };
   function normDate(v){
     var s = String(v||'').trim();
@@ -4070,8 +4080,13 @@ window.__gs = {
     var list = Object.keys(g.state.records||{}).map(function(k){ return g.state.records[k]; });
     var d = normDate(act.date);
     if(d) list = list.filter(function(r){ return r.date === d; });
+    var mo = String(act.month||'').trim();
+    if(/^\d{4}-\d{2}$/.test(mo)) list = list.filter(function(r){ return String(r.date||'').slice(0,7) === mo; });
     var n = String(act.name||'').trim();
-    if(n) list = list.filter(function(r){ return (r.name||'').indexOf(n) >= 0; });
+    if(n){
+      var ex = list.filter(function(r){ return r.name === n; });
+      list = ex.length ? ex : list.filter(function(r){ return (r.name||'').indexOf(n) >= 0; });
+    }
     return list;
   }
   function recLine(r){
@@ -4081,19 +4096,50 @@ window.__gs = {
   function describe(act){
     var meta = ACT_META[act.action];
     var head = meta.t, body = '';
+    var list = [];
     var name = String(act.name||'').trim();
     var rate = Number(act.rate)||0, hours = Number(act.hours)||0;
     if(act.action === 'add_preset' || act.action === 'update_preset'){
       body = '名称 <b>' + esc2(name || '（未给）') + '</b> · 时薪 <b>¥' + rate + '</b>' +
         (hours ? ' · 默认 <b>' + hours + 'h</b>' : '');
+    }else if(act.action === 'delete_preset'){
+      var ps = (core() ? (core().state.presets||[]) : []).filter(function(x){
+        return x.name === name || x.name.indexOf(name) >= 0;
+      });
+      body = '将删除 <b>' + ps.length + '</b> 个快捷方式' + (ps.length ? '\n' + ps.slice(0,4).map(function(x){
+        return x.name + '（时薪 ¥' + x.rate + (x.hours ? '/默认' + x.hours + 'h' : '') + '）';
+      }).join('\n') : '');
+      list = ps.map(function(x){ return { preset:true, id:x.id }; });
     }else if(act.action === 'add_record'){
       var d = normDate(act.date) || ymdOf(new Date());
       body = fmtDate(d) + ' · <b>' + esc2(name||'未命名') + '</b>\n' +
         (hours||0) + 'h × ¥' + rate + ' = <b>' + money(hours*rate) + '</b>' +
         (act.paid ? ' · 已结' : ' · 未结');
+    }else if(act.action === 'set_color'){
+      var c = String(act.color||'').toLowerCase();
+      body = '把 <b>' + esc2(name||'（未给）') + '</b> 的颜色改成 <b style="color:' + c + '">' + c + '</b> ' +
+        '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:' + c + ';vertical-align:-2px"></span>';
+    }else if(act.action === 'rename_job'){
+      var from = String(act.from||'').trim(), to = String(act.to||'').trim();
+      var rs = core() ? Object.keys(core().state.records||{}).map(function(k){ return core().state.records[k]; })
+        .filter(function(r){ return r.name === from; }) : [];
+      var pr = core() ? (core().state.presets||[]).filter(function(x){ return x.name === from; }) : [];
+      body = '把 <b>' + esc2(from) + '</b> 统一改叫 <b>' + esc2(to) + '</b>\n' +
+        '涉及 <b>' + rs.length + '</b> 条记录' + (pr.length ? '、' + pr.length + ' 个快捷方式' : '');
+      list = rs;
     }else{
-      var list = matchRecords(act);
-      if(act.action === 'set_paid'){
+      list = matchRecords(act);
+      if(act.action === 'update_record'){
+        var chg = [];
+        if(act.hours != null) chg.push('工时→<b>' + (Number(act.hours)||0) + 'h</b>');
+        if(act.rate != null) chg.push('时薪→<b>¥' + (Number(act.rate)||0) + '</b>');
+        if(act.newName) chg.push('名称→<b>' + esc2(act.newName) + '</b>');
+        if(act.date) chg.push('日期→<b>' + (normDate(act.date)||act.date) + '</b>');
+        if(act.note) chg.push('备注→<b>' + esc2(act.note) + '</b>');
+        if(act.paid != null) chg.push('结账→<b>' + (act.paid !== false ? '已结' : '未结') + '</b>');
+        body = '将修改 <b>' + list.length + '</b> 条：' + (chg.join('，') || '（没说要改什么）') +
+          (list.length ? '\n' + list.slice(0,4).map(recLine).join('\n') : '');
+      }else if(act.action === 'set_paid'){
         var on = act.paid !== false;
         if(on) list = list.filter(function(r){ return !r.paid; });
         body = '共 <b>' + list.length + '</b> 条' + (list.length ? '\n' + list.slice(0,4).map(recLine).join('\n') : '');
@@ -4108,7 +4154,8 @@ window.__gs = {
   }
   function actionCard(act){
     var info = describe(act);
-    if((act.action === 'delete_record' || act.action === 'set_paid') && !info.list.length){
+    if((act.action === 'delete_record' || act.action === 'set_paid' || act.action === 'update_record' ||
+        act.action === 'delete_preset' || act.action === 'rename_job') && !info.list.length){
       bubble('没找到匹配的记录，检查一下日期或名称。', 'err');
       return;
     }
@@ -4189,6 +4236,60 @@ window.__gs = {
         list2.forEach(function(r){ r.paid = on; });
         g.save(); afterChange();
         return { ok:true, text:(on ? '已把 ' : '已取消 ') + list2.length + ' 条记录的结账状态' };
+      }
+      if(act.action === 'delete_preset'){
+        var n1 = String(act.name||'').trim();
+        var ps = (st.presets||[]).filter(function(x){ return x.name === n1 || x.name.indexOf(n1) >= 0; });
+        if(!ps.length) return { ok:false, text:'没找到叫「' + n1 + '」的快捷方式。' };
+        st.presets = st.presets.filter(function(x){ return ps.indexOf(x) < 0; });
+        g.save(); afterChange();
+        return { ok:true, text:'已删除快捷方式「' + ps.map(function(x){ return x.name; }).join('」「') + '」' };
+      }
+      if(act.action === 'update_record'){
+        var fDate = normDate(act.date), fName = String(act.name||'').trim();
+        if(!fDate && !fName) return { ok:false, text:'没说改哪一条，请带上日期或名称。' };
+        var list3 = matchRecords(act);
+        if(!list3.length) return { ok:false, text:'没找到匹配的记录。' };
+        var nd = normDate(act.date);
+        list3.forEach(function(r){
+          if(act.hours != null) r.hours = Number(act.hours)||0;
+          if(act.rate != null) r.rate = Number(act.rate)||0;
+          if(nd) r.date = nd;
+          if(act.newName) r.name = String(act.newName).trim();
+          if(act.note != null) r.note = String(act.note);
+          if(act.paid != null) r.paid = act.paid !== false;
+        });
+        g.save(); afterChange();
+        var what = [];
+        if(act.hours != null) what.push('工时 ' + (Number(act.hours)||0) + 'h');
+        if(act.rate != null) what.push('时薪 ¥' + (Number(act.rate)||0));
+        if(nd) what.push('日期 ' + fmtDate(nd));
+        if(act.newName) what.push('名称「' + act.newName + '」');
+        if(act.note != null) what.push('备注');
+        if(act.paid != null) what.push(act.paid !== false ? '已结' : '未结');
+        return { ok:true, text:'已修改 ' + list3.length + ' 条记录（' + what.join('、') + '）' };
+      }
+      if(act.action === 'set_color'){
+        var cn = String(act.name||'').trim(), cc = String(act.color||'').toLowerCase();
+        if(!cn) return { ok:false, text:'没说要改哪个兼职的颜色。' };
+        if(!/^#[0-9a-fA-F]{6}$/.test(cc)) return { ok:false, text:'颜色格式不对（要 #RRGGBB），没能设置。' };
+        if(!st.settings) st.settings = {};
+        st.settings.jobColors = st.settings.jobColors || {};
+        st.settings.jobColors[cn] = cc;
+        g.save(); afterChange();
+        return { ok:true, text:'已把「' + cn + '」的颜色改成 ' + cc };
+      }
+      if(act.action === 'rename_job'){
+        var from = String(act.from||'').trim(), to = String(act.to||'').trim();
+        if(!from || !to) return { ok:false, text:'改名需要「原名称」和「新名称」都给出来。' };
+        var n2 = 0, n3 = 0;
+        Object.keys(st.records||{}).forEach(function(k){
+          if(st.records[k].name === from){ st.records[k].name = to; n2++; }
+        });
+        (st.presets||[]).forEach(function(x){ if(x.name === from){ x.name = to; n3++; } });
+        if(!n2 && !n3) return { ok:false, text:'没找到叫「' + from + '」的记录。' };
+        g.save(); afterChange();
+        return { ok:true, text:'已把 ' + n2 + ' 条记录' + (n3 ? '和 ' + n3 + ' 个快捷方式' : '') + '改名为「' + to + '」' };
       }
       return { ok:false, text:'不认识这个操作。' };
     }catch(e){
