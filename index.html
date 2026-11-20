@@ -1113,7 +1113,7 @@ function initial(name){
 
 /* ================= 状态 ================= */
 const KEY='gongshi_v1';
-const APP_VERSION='1.3.6';
+const APP_VERSION='1.3.7';
 function emptyState(){
   return { version:1, records:{}, presets:[], settings:{currency:'¥', theme:'light', autoBackup:true, jobColors:{}} };
 }
@@ -1644,7 +1644,7 @@ function renderSheet(){
         '<span class="lwrap"><span class="lname">未结账</span><span class="lval" style="color:var(--unpaid)">'+esc(money(sum.unpaid))+'</span></span>'+
         '<span class="lpc">'+uPc+'%</span></div>';
   }else{
-    legend = '<div class="legend-item"><span class="legend-note" style="font-size:12px;color:var(--text-3);font-weight:600">还没有记录，下面加一笔就能看到结算饼图。</span></div>';
+    legend = '<div class="legend-item"><span class="legend-note" style="font-size:12px;color:var(--text-3);font-weight:600">还没有记录，点下面的快捷方式加一笔就能看到结算饼图。</span></div>';
   }
 
   const recHtml = list.length ? list.map(r=>{
@@ -1665,13 +1665,14 @@ function renderSheet(){
     '</div>';
   }).join('') : '<div class="empty-line">这一天还没有记录</div>';
 
-  const chips = state.presets.length ? state.presets.map(p=>
+  const chips = (state.presets.length ? state.presets.map(p=>
       '<button class="chip" data-preset="'+p.id+'">'+
         '<span class="av" style="background:'+colorOf(p.name)+'">'+esc(initial(p.name))+'</span>'+
         '<span class="tx"><span class="name">'+esc(p.name)+'</span>'+
         '<span class="rate">'+esc(money(p.rate))+(p.hours?' · '+hoursText(p.hours):'')+'</span></span>'+
       '</button>'
-    ).join('') : '<button class="chip add" data-act="newpreset">+ 先建个快捷方式</button>';
+    ).join('') : '') +
+    '<button class="chip add" data-act="newpreset">'+(state.presets.length?'＋ 新建':'+ 先建个快捷方式')+'</button>';
 
   const ed = editingId ? state.records[editingId] : null;
   const fName  = ed ? ed.name  : '';
@@ -1686,7 +1687,7 @@ function renderSheet(){
         '<div class="sheet-total">'+esc(money(sum.amount))+'<small>当天收入</small></div>'+
       '</div>'+
       '<div style="display:flex;gap:8px;flex:0 0 auto">'+
-        '<button class="close-btn" id="jumpForm" aria-label="记一笔" style="color:var(--primary);font-weight:800;font-size:15px">＋</button>'+
+        '<button class="close-btn" id="jumpForm" aria-label="'+(ed?'定位到修改表单':'新建快捷方式')+'" style="color:var(--primary);font-weight:800;font-size:15px">'+(ed?'↓':'＋')+'</button>'+
         '<button class="close-btn" id="sheetClose" aria-label="关闭">✕</button>'+
       '</div>'+
     '</div>'+
@@ -1707,10 +1708,12 @@ function renderSheet(){
     '<div class="card"><div class="card-pad">'+
       '<div class="card-title">快捷添加 <span style="font-weight:600;color:var(--text-3)">点一下加到这天</span></div>'+
       '<div class="chips" style="padding:0 0 2px">'+chips+'</div>'+
+      (state.presets.length ? '<p class="pal-note" style="margin-top:10px">没设默认时长的快捷方式，点了会先问一句做了几小时。</p>' : '')+
     '</div></div>'+
 
+    (ed ?
     '<div class="card"><div class="card-pad">'+
-      '<div class="card-title" style="margin-bottom:13px">'+(ed?'修改记录':'新增一笔')+'</div>'+
+      '<div class="card-title" style="margin-bottom:13px">修改记录</div>'+
       '<form class="form-grid" id="recForm">'+
         '<label class="field"><span>兼职名称</span>'+
           '<input id="fName" type="text" maxlength="24" placeholder="例如：咖啡店 / 家教 / 展会" value="'+esc(fName)+'" required>'+
@@ -1728,42 +1731,38 @@ function renderSheet(){
         '</div>'+
         '<div class="calc-line"><span>本笔收入</span><b id="calcVal">'+esc(money(0))+'</b></div>'+
         '<div class="switch-row"><span class="lb">已经结账了</span>'+
-          '<input type="checkbox" class="switch" id="fPaid" '+(ed?(ed.paid?'checked':''):
-            (localStorage.getItem('gs_lastPaid')==='1'?'checked':''))+'></div>'+
+          '<input type="checkbox" class="switch" id="fPaid" '+(ed.paid?'checked':'')+'></div>'+
         '<div class="f-actions">'+
-          '<button type="submit" class="btn primary">'+(ed?'保存修改':'保存记录')+'</button>'+
-          (ed?'<button type="button" class="btn ghost" id="cancelEdit">取消</button>':
-              '<button type="button" class="btn line" id="savePresetBtn">存为快捷</button>')+
+          '<button type="submit" class="btn primary">保存修改</button>'+
+          '<button type="button" class="btn ghost" id="cancelEdit">取消</button>'+
         '</div>'+
-        (ed?'<button type="button" class="btn danger block" id="delRec" style="margin-top:2px">删除这条记录</button>':'')+
+        '<button type="button" class="btn danger block" id="delRec" style="margin-top:2px">删除这条记录</button>'+
       '</form>'+
-    '</div></div>'+
+    '</div></div>' : '')+
     '<div style="height:6px"></div>';
 
-  // 表单初始化
-  const fh=$('#fHours'), fr=$('#fRate');
-  const updateCalc = ()=>{
-    const v = round2((parseFloat(fh.value)||0)*(parseFloat(fr.value)||0));
-    $('#calcVal').textContent = money(v);
-  };
-  fh.addEventListener('input', updateCalc);
-  fr.addEventListener('input', updateCalc);
-  updateCalc();
+  // 表单初始化（只在修改记录时存在）
+  if(ed){
+    const fh=$('#fHours'), fr=$('#fRate');
+    const updateCalc = ()=>{
+      const v = round2((parseFloat(fh.value)||0)*(parseFloat(fr.value)||0));
+      $('#calcVal').textContent = money(v);
+    };
+    fh.addEventListener('input', updateCalc);
+    fr.addEventListener('input', updateCalc);
+    updateCalc();
 
-  $('#recForm').addEventListener('submit', onSubmitRecord);
-  $$('.hour-chips button', $('#sheetBody')).forEach(b=>{
-    b.addEventListener('click', ()=>{ fh.value = b.dataset.h; updateCalc(); });
-  });
-  const cancel = $('#cancelEdit');
-  if(cancel) cancel.addEventListener('click', ()=>{ editingId=null; renderSheet(); });
-  const delRec = $('#delRec');
-  if(delRec) delRec.addEventListener('click', ()=>{
-    const id = editingId;
-    editingId = null;
-    deleteRecord(id);
-  });
-  const sp = $('#savePresetBtn');
-  if(sp) sp.addEventListener('click', onSavePresetFromForm);
+    $('#recForm').addEventListener('submit', onSubmitRecord);
+    $$('.hour-chips button', $('#sheetBody')).forEach(b=>{
+      b.addEventListener('click', ()=>{ fh.value = b.dataset.h; updateCalc(); });
+    });
+    $('#cancelEdit').addEventListener('click', ()=>{ editingId=null; renderSheet(); });
+    $('#delRec').addEventListener('click', ()=>{
+      const id = editingId;
+      editingId = null;
+      deleteRecord(id);
+    });
+  }
 
   bindSwipeDelete();
 }
@@ -1865,18 +1864,9 @@ function addFromPreset(pid, date){
   if(!p) return;
 
   const hours = Number(p.hours)||0;
-  // 没有设默认时长 → 打开当天详情，把名称和时薪带进表单，只差填时长
+  // 没有设默认时长 → 弹一个只问时长的小面板
   if(hours<=0){
-    openSheet(date);
-    const n=$('#fName'), r=$('#fRate');
-    if(n) n.value = p.name;
-    if(r){ r.value = p.rate; r.dispatchEvent(new Event('input')); }
-    setTimeout(()=>{
-      const form = $('#recForm');
-      if(form) form.scrollIntoView({block:'center'});
-      if($('#fHours')) $('#fHours').focus();
-    }, 340);
-    toast('已带出「'+p.name+'」，填一下时长');
+    openHoursSheet(p, date);
     return;
   }
 
@@ -1896,24 +1886,79 @@ function addFromPreset(pid, date){
   return rec;
 }
 
-/* ================= 快捷方式管理 ================= */
-function onSavePresetFromForm(){
-  const name = $('#fName').value.trim();
-  const rate = parseFloat($('#fRate').value)||0;
-  const hours = parseFloat($('#fHours').value)||0;
-  if(!name){ toast('先填个名称'); return; }
-  if(rate<=0){ toast('先填个时薪'); return; }
-  if((state.presets||[]).some(p=>p.name===name)){
-    toast('已经有同名快捷方式了'); return;
-  }
-  state.presets.push({ id:uid(), name:name, rate:rate, hours:hours });
-  save();
-  renderQuickChips(); renderSheet(); renderPresets();
-  toast('已存为快捷方式「'+name+'」');
+/* 快捷方式没设默认时长时，只问一句「做了几小时」 */
+function openHoursSheet(p, date){
+  const paidDefault = localStorage.getItem('gs_lastPaid')==='1';
+  const dd = parseYmd(date);
+  const dateTxt = (dd.getMonth()+1)+'月'+dd.getDate()+'日';
+  const html =
+    '<div class="sheet-head">'+
+      '<div>'+
+        '<div class="sheet-date">'+esc(p.name)+'</div>'+
+        '<div class="sheet-weekday">'+esc(money(p.rate))+' / 小时 · '+dateTxt+'</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;flex:0 0 auto">'+
+        '<button class="close-btn" id="hoursBack" aria-label="返回" style="font-size:17px">‹</button>'+
+        '<button class="close-btn" id="sheetClose" aria-label="关闭">✕</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="card"><div class="card-pad">'+
+      '<div class="card-title" style="margin-bottom:13px">这一班做了多久？</div>'+
+      '<div class="hour-chips">'+
+        [1,2,3,4,6,8].map(h=>'<button type="button" data-h="'+h+'">'+h+' 小时</button>').join('')+
+      '</div>'+
+      '<label class="field" style="margin-top:14px"><span>工作时长（小时）</span>'+
+        '<input id="qhHours" type="number" inputmode="decimal" step="0.5" min="0" max="24" placeholder="0" autofocus>'+
+      '</label>'+
+      '<div class="calc-line"><span>本笔收入</span><b id="qhCalc">'+esc(money(0))+'</b></div>'+
+      '<div class="switch-row"><span class="lb">已经结账了</span>'+
+        '<input type="checkbox" class="switch" id="qhPaid" '+(paidDefault?'checked':'')+'></div>'+
+      '<div class="f-actions"><button type="button" class="btn primary" id="qhSave">加上这笔</button></div>'+
+    '</div></div>'+
+    '<div style="height:6px"></div>';
+
+  $('#sheetBody').innerHTML = html;
+  $('#mask').classList.add('on');
+  $('#sheet').classList.add('on');
+  document.body.style.overflow='hidden';
+  $('#sheet').scrollTop = 0;
+  selDate = date; editingId = null;
+
+  const hEl = $('#qhHours');
+  const calc = ()=>{
+    const v = round2((parseFloat(hEl.value)||0)*(Number(p.rate)||0));
+    $('#qhCalc').textContent = money(v);
+  };
+  hEl.addEventListener('input', calc);
+  $$('#sheetBody .hour-chips button').forEach(function(b){
+    b.addEventListener('click', function(){ hEl.value = b.dataset.h; calc(); });
+  });
+
+  $('#sheetClose').addEventListener('click', closeSheet);
+  $('#hoursBack').addEventListener('click', function(){ openSheet(date); });
+  $('#qhSave').addEventListener('click', function(){
+    const h = parseFloat(hEl.value)||0;
+    if(h<=0){ toast('填一下做了几小时'); hEl.focus(); return; }
+    const rec = {
+      id: uid(), date: date, name: p.name,
+      hours: h, rate: Number(p.rate)||0,
+      paid: $('#qhPaid').checked, createdAt: Date.now()
+    };
+    state.records[rec.id] = rec;
+    localStorage.setItem('gs_lastPaid', rec.paid?'1':'0');
+    save();
+    renderCalendar();
+    if(view==='stats') renderStats();
+    toast('已添加「'+p.name+'」'+hoursText(h)+' · '+money(round2(h*rec.rate)));
+    openSheet(date);
+  });
+  setTimeout(function(){ try{ hEl.focus(); }catch(e){} }, 260);
 }
 
-function openPresetEditor(p){
+/* ================= 快捷方式管理 ================= */
+function openPresetEditor(p, backTo){
   const isNew = !p;
+  const backDate = backTo || null;
   const name = p? p.name : '';
   const rate = p? p.rate : '';
   const hours = p? (p.hours||'') : '';
@@ -1958,17 +2003,25 @@ function openPresetEditor(p){
     const h = parseFloat($('#pHours').value)||0;
     if(!n){ toast('填个名称'); return; }
     if(r<=0){ toast('时薪要大于 0'); return; }
+    let newId = null;
     if(p){
       p.name=n; p.rate=r; p.hours=h;
       save();
       toast('已更新。历史记录的金额不会变');
     }else{
-      state.presets.push({id:uid(), name:n, rate:r, hours:h});
+      newId = uid();
+      state.presets.push({id:newId, name:n, rate:r, hours:h});
       save();
-      toast('已创建快捷方式');
+      if(!backDate) toast('已创建快捷方式');
     }
     closeSheet();
     renderQuickChips(); renderPresets(); renderCalendar();
+    if(view==='stats') renderStats();
+    if(backDate){
+      openSheet(backDate);
+      // 从某一天点「新建」来的，建完直接把这笔记上
+      if(newId) addFromPreset(newId, backDate);
+    }
   });
 }
 
@@ -2954,6 +3007,9 @@ function bind(){
       if(form){
         form.scrollIntoView({block:'center'});
         setTimeout(()=>{ if($('#fName')) $('#fName').focus(); }, 320);
+      }else if(selDate){
+        const d = selDate;
+        openPresetEditor(null, d);
       }
       return;
     }
@@ -2966,7 +3022,7 @@ function bind(){
     if(chip && selDate){ addFromPreset(chip.dataset.preset, selDate); return; }
 
     const np = e.target.closest('[data-act="newpreset"]');
-    if(np){ const d=selDate; closeSheet(); openPresetEditor(null); return; }
+    if(np){ const d=selDate; openPresetEditor(null, d); return; }
 
     const rec = e.target.closest('.rec');
     if(!rec || !e.target.closest('.swipe.on')){
